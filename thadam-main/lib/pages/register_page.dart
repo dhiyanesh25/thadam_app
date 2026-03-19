@@ -7,6 +7,52 @@ import 'dashboard_page.dart';
 import 'parent_dashboard_page.dart';
 import 'admin_dashboard_page.dart';
 
+class _T {
+  static const navy      = Color(0xFF0D1B2A);
+  static const navyLight = Color(0xFF1B2E42);
+  static const teal      = Color(0xFF0A9396);
+  static const tealLight = Color(0xFFD9F0F1);
+  static const accent    = Color(0xFF94D2BD);
+  static const surface   = Color(0xFFF8FAFB);
+  static const card      = Color(0xFFFFFFFF);
+  static const border    = Color(0xFFE4EAF0);
+  static const textPri   = Color(0xFF0D1B2A);
+  static const textSub   = Color(0xFF6B7A8D);
+  static const red       = Color(0xFFE63946);
+  static const orange    = Color(0xFFF4A261);
+  static const green     = Color(0xFF2DC653);
+  static const error     = Color(0xFFE63946);
+
+  static InputDecoration inputDec(String label,
+      {String? hint, IconData? icon}) =>
+      InputDecoration(
+        labelText: label,
+        hintText: hint,
+        prefixIcon: icon != null
+            ? Icon(icon, size: 18, color: textSub)
+            : null,
+        labelStyle: const TextStyle(color: textSub, fontSize: 13),
+        hintStyle: TextStyle(color: textSub.withOpacity(0.6), fontSize: 13),
+        filled: true,
+        fillColor: surface,
+        contentPadding:
+        const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: const BorderSide(color: border)),
+        enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: const BorderSide(color: border)),
+        focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: const BorderSide(color: teal, width: 1.5)),
+        errorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: const BorderSide(color: error)),
+        errorStyle: const TextStyle(color: error, fontSize: 11),
+      );
+}
+
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
 
@@ -17,72 +63,86 @@ class RegisterPage extends StatefulWidget {
 class _RegisterPageState extends State<RegisterPage> {
   final _formKey = GlobalKey<FormState>();
 
-  final _nameController = TextEditingController();
-  final _ageController = TextEditingController();
-  final _mobileController = TextEditingController();
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
+  final _nameController            = TextEditingController();
+  final _ageController             = TextEditingController();
+  final _mobileController          = TextEditingController();
+  final _emailController           = TextEditingController();
+  final _passwordController        = TextEditingController();
   final _confirmPasswordController = TextEditingController();
 
   String? _selectedGender;
   String? _selectedUserType;
 
-  bool _obscure = true;
+  bool _obscure        = true;
   bool _obscureConfirm = true;
+  bool _isLoading      = false;
 
-  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final FirebaseAuth      _auth      = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF3F6FA),
+      backgroundColor: _T.surface,
       body: SafeArea(
         child: Stack(
           children: [
+            // ── Header Background ──
             Container(
-              height: MediaQuery.of(context).size.height * 0.28,
+              height: MediaQuery.of(context).size.height * 0.25,
               decoration: const BoxDecoration(
                 gradient: LinearGradient(
-                  colors: [Color(0xFF5A9BD8), Color(0xFF3A78C2)],
+                  colors: [_T.navy, _T.navyLight],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
                 borderRadius: BorderRadius.vertical(
-                  bottom: Radius.circular(40),
+                  bottom: Radius.circular(32),
                 ),
               ),
             ),
 
+            // ── Content ──
             Center(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 22),
+                padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Column(
                   children: [
-                    const SizedBox(height: 30),
+                    const SizedBox(height: 20),
 
-                    const Icon(Icons.person_add_alt_1,
-                        size: 55, color: Colors.white),
-                    const SizedBox(height: 8),
+                    // ── Icon & Title ──
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: const Icon(Icons.person_add_alt_1_rounded,
+                          size: 48, color: Colors.white),
+                    ),
+                    const SizedBox(height: 12),
                     const Text(
                       "Create Account",
                       style: TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white),
-                    ),
-                    const SizedBox(height: 25),
-
-                    Container(
-                      padding: const EdgeInsets.all(22),
-                      decoration: BoxDecoration(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w700,
                         color: Colors.white,
-                        borderRadius: BorderRadius.circular(20),
-                        boxShadow: const [
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+
+                    // ── Form Container ──
+                    Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: _T.card,
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: _T.border),
+                        boxShadow: [
                           BoxShadow(
-                            color: Colors.black12,
+                            color: Colors.black.withOpacity(0.06),
                             blurRadius: 12,
-                            offset: Offset(0, 6),
+                            offset: const Offset(0, 4),
                           ),
                         ],
                       ),
@@ -91,25 +151,51 @@ class _RegisterPageState extends State<RegisterPage> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            _label("Full Name"),
-                            _textField(_nameController, "Enter name",
-                                icon: Icons.person_outline),
+                            // ── Full Name ──
+                            const _SectionLabel('FULL NAME'),
+                            TextFormField(
+                              controller: _nameController,
+                              decoration: _T.inputDec(
+                                'Full Name',
+                                hint: 'Enter your name',
+                                icon: Icons.person_outline_rounded,
+                              ),
+                              validator: (value) =>
+                              value == null || value.isEmpty
+                                  ? 'Enter your name'
+                                  : null,
+                            ),
 
                             const SizedBox(height: 14),
 
-                            _label("Age"),
-                            _textField(_ageController, "Enter age",
-                                keyboardType: TextInputType.number,
-                                icon: Icons.cake_outlined),
+                            // ── Age ──
+                            const _SectionLabel('AGE'),
+                            TextFormField(
+                              controller: _ageController,
+                              keyboardType: TextInputType.number,
+                              decoration: _T.inputDec(
+                                'Age',
+                                hint: 'Enter your age',
+                                icon: Icons.cake_outlined,
+                              ),
+                              validator: (value) =>
+                              value == null || value.isEmpty
+                                  ? 'Enter your age'
+                                  : null,
+                            ),
 
                             const SizedBox(height: 14),
 
-                            _label("Mobile Number"),
-                            _textField(
-                              _mobileController,
-                              "10 digit mobile",
+                            // ── Mobile ──
+                            const _SectionLabel('MOBILE NUMBER'),
+                            TextFormField(
+                              controller: _mobileController,
                               keyboardType: TextInputType.phone,
-                              icon: Icons.phone_android,
+                              decoration: _T.inputDec(
+                                'Mobile Number',
+                                hint: '10 digit mobile',
+                                icon: Icons.phone_android_rounded,
+                              ),
                               validator: (value) {
                                 if (value == null || value.isEmpty) {
                                   return 'Enter mobile number';
@@ -123,12 +209,16 @@ class _RegisterPageState extends State<RegisterPage> {
 
                             const SizedBox(height: 14),
 
-                            _label("Email"),
-                            _textField(
-                              _emailController,
-                              "example@gmail.com",
+                            // ── Email ──
+                            const _SectionLabel('EMAIL ADDRESS'),
+                            TextFormField(
+                              controller: _emailController,
                               keyboardType: TextInputType.emailAddress,
-                              icon: Icons.email_outlined,
+                              decoration: _T.inputDec(
+                                'Email',
+                                hint: 'example@gmail.com',
+                                icon: Icons.email_outlined,
+                              ),
                               validator: (value) {
                                 if (value == null || value.isEmpty) {
                                   return 'Enter email';
@@ -143,46 +233,68 @@ class _RegisterPageState extends State<RegisterPage> {
 
                             const SizedBox(height: 14),
 
-                            _label("Gender"),
-                            _dropdownField(
-                              hint: "Select Gender",
+                            // ── Gender ──
+                            const _SectionLabel('GENDER'),
+                            DropdownButtonFormField<String>(
                               value: _selectedGender,
-                              items: const ['Male', 'Female', 'Other'],
+                              hint: const Text('Select Gender'),
+                              items: ['Male', 'Female', 'Other']
+                                  .map((item) => DropdownMenuItem(
+                                  value: item, child: Text(item)))
+                                  .toList(),
                               onChanged: (val) =>
                                   setState(() => _selectedGender = val),
+                              validator: (value) =>
+                              value == null ? 'Select gender' : null,
+                              decoration: _T.inputDec('Gender'),
                             ),
 
                             const SizedBox(height: 14),
 
-                            _label("Role"),
-                            _dropdownField(
-                              hint: "Who are you?",
+                            // ── Role ──
+                            const _SectionLabel('ROLE'),
+                            DropdownButtonFormField<String>(
                               value: _selectedUserType,
-                              items: const [
+                              hint: const Text('Who are you?'),
+                              items: [
                                 'Teacher',
                                 'Special Educator',
                                 'Therapist',
                                 'Parent',
                                 'Admin'
-                              ],
+                              ]
+                                  .map((item) => DropdownMenuItem(
+                                  value: item, child: Text(item)))
+                                  .toList(),
                               onChanged: (val) =>
                                   setState(() => _selectedUserType = val),
+                              validator: (value) =>
+                              value == null ? 'Select role' : null,
+                              decoration: _T.inputDec('Role'),
                             ),
 
                             const SizedBox(height: 14),
 
-                            _label("Password"),
-                            _textField(
-                              _passwordController,
-                              "Create password",
+                            // ── Password ──
+                            const _SectionLabel('PASSWORD'),
+                            TextFormField(
+                              controller: _passwordController,
                               obscureText: _obscure,
-                              icon: Icons.lock_outline,
-                              suffix: IconButton(
-                                icon: Icon(_obscure
-                                    ? Icons.visibility_off
-                                    : Icons.visibility),
-                                onPressed: () =>
-                                    setState(() => _obscure = !_obscure),
+                              decoration: _T.inputDec(
+                                'Password',
+                                hint: 'Min 8 chars, 1 capital, 1 number',
+                                icon: Icons.lock_outline_rounded,
+                              ).copyWith(
+                                suffixIcon: IconButton(
+                                  icon: Icon(
+                                    _obscure
+                                        ? Icons.visibility_off_rounded
+                                        : Icons.visibility_rounded,
+                                    color: _T.textSub,
+                                  ),
+                                  onPressed: () =>
+                                      setState(() => _obscure = !_obscure),
+                                ),
                               ),
                               validator: (value) {
                                 if (value == null || value.isEmpty) {
@@ -198,18 +310,26 @@ class _RegisterPageState extends State<RegisterPage> {
 
                             const SizedBox(height: 14),
 
-                            _label("Confirm Password"),
-                            _textField(
-                              _confirmPasswordController,
-                              "Re-enter password",
+                            // ── Confirm Password ──
+                            const _SectionLabel('CONFIRM PASSWORD'),
+                            TextFormField(
+                              controller: _confirmPasswordController,
                               obscureText: _obscureConfirm,
-                              icon: Icons.lock,
-                              suffix: IconButton(
-                                icon: Icon(_obscureConfirm
-                                    ? Icons.visibility_off
-                                    : Icons.visibility),
-                                onPressed: () => setState(
-                                        () => _obscureConfirm = !_obscureConfirm),
+                              decoration: _T.inputDec(
+                                'Confirm Password',
+                                hint: 'Re-enter password',
+                                icon: Icons.lock_rounded,
+                              ).copyWith(
+                                suffixIcon: IconButton(
+                                  icon: Icon(
+                                    _obscureConfirm
+                                        ? Icons.visibility_off_rounded
+                                        : Icons.visibility_rounded,
+                                    color: _T.textSub,
+                                  ),
+                                  onPressed: () => setState(() =>
+                                  _obscureConfirm = !_obscureConfirm),
+                                ),
                               ),
                               validator: (value) {
                                 if (value != _passwordController.text) {
@@ -219,34 +339,48 @@ class _RegisterPageState extends State<RegisterPage> {
                               },
                             ),
 
-                            const SizedBox(height: 22),
+                            const SizedBox(height: 24),
 
+                            // ── Create Button ──
                             SizedBox(
                               width: double.infinity,
                               child: ElevatedButton(
-                                onPressed: _registerUser,
+                                onPressed:
+                                _isLoading ? null : _registerUser,
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor:
-                                  const Color(0xFF3A78C2),
+                                  backgroundColor: _T.teal,
+                                  foregroundColor: Colors.white,
+                                  elevation: 0,
                                   padding: const EdgeInsets.symmetric(
-                                      vertical: 14),
+                                      vertical: 13),
                                   shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(14),
+                                    borderRadius: BorderRadius.circular(10),
                                   ),
+                                  disabledBackgroundColor:
+                                  _T.teal.withOpacity(0.5),
                                 ),
-                                child: const Text(
-                                  "Create Account",
-                                  style: TextStyle(
-                                    fontSize: 16,
+                                child: _isLoading
+                                    ? const SizedBox(
+                                  height: 20,
+                                  width: 20,
+                                  child: CircularProgressIndicator(
                                     color: Colors.white,
-                                    fontWeight: FontWeight.bold,
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                                    : const Text(
+                                  'Create Account',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
                                   ),
                                 ),
                               ),
                             ),
 
-                            const SizedBox(height: 14),
+                            const SizedBox(height: 16),
 
+                            // ── Login Link ──
                             Center(
                               child: GestureDetector(
                                 onTap: () => Navigator.pushReplacement(
@@ -254,11 +388,23 @@ class _RegisterPageState extends State<RegisterPage> {
                                   MaterialPageRoute(
                                       builder: (_) => const LoginPage()),
                                 ),
-                                child: const Text(
-                                  "Already have an account? Login",
-                                  style: TextStyle(
-                                      color: Color(0xFF3A78C2),
-                                      fontWeight: FontWeight.w600),
+                                child: RichText(
+                                  text: TextSpan(
+                                    text: 'Already have an account? ',
+                                    style: const TextStyle(
+                                      fontSize: 13,
+                                      color: _T.textSub,
+                                    ),
+                                    children: const [
+                                      TextSpan(
+                                        text: 'Login',
+                                        style: TextStyle(
+                                          color: _T.teal,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
                             ),
@@ -266,6 +412,8 @@ class _RegisterPageState extends State<RegisterPage> {
                         ),
                       ),
                     ),
+
+                    const SizedBox(height: 20),
                   ],
                 ),
               ),
@@ -276,95 +424,46 @@ class _RegisterPageState extends State<RegisterPage> {
     );
   }
 
-  Widget _label(String text) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Text(text,
-          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-    );
-  }
-
-  Widget _textField(
-      TextEditingController controller,
-      String hint, {
-        bool obscureText = false,
-        TextInputType keyboardType = TextInputType.text,
-        Widget? suffix,
-        IconData? icon,
-        String? Function(String?)? validator,
-      }) {
-    return TextFormField(
-      controller: controller,
-      obscureText: obscureText,
-      keyboardType: keyboardType,
-      validator:
-      validator ?? (value) => value == null || value.isEmpty ? 'Required' : null,
-      decoration: InputDecoration(
-        hintText: hint,
-        prefixIcon: icon != null ? Icon(icon) : null,
-        suffixIcon: suffix,
-        filled: true,
-        fillColor: const Color(0xFFF3F6FA),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide.none,
-        ),
-      ),
-    );
-  }
-
-  Widget _dropdownField({
-    required String hint,
-    required String? value,
-    required List<String> items,
-    required void Function(String?) onChanged,
-  }) {
-    return DropdownButtonFormField<String>(
-      value: value,
-      hint: Text(hint),
-      items: items
-          .map((item) => DropdownMenuItem(value: item, child: Text(item)))
-          .toList(),
-      onChanged: onChanged,
-      validator: (value) => value == null ? 'Required' : null,
-      decoration: InputDecoration(
-        filled: true,
-        fillColor: const Color(0xFFF3F6FA),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide.none,
-        ),
-      ),
-    );
-  }
-
   Future<void> _registerUser() async {
     if (_formKey.currentState!.validate()) {
       if (_selectedGender == null || _selectedUserType == null) {
-        _showSnackBar("Please select both gender and role.");
+        _showSnackBar('Please select both gender and role.');
         return;
       }
 
-      final name = _nameController.text.trim();
-      final age = _ageController.text.trim();
-      final mobile = _mobileController.text.trim();
-      final email = _emailController.text.trim();
+      setState(() => _isLoading = true);
+
+      final name     = _nameController.text.trim();
+      final age      = _ageController.text.trim();
+      final mobile   = _mobileController.text.trim();
+      final email    = _emailController.text.trim();
       final password = _passwordController.text.trim();
 
       final isParent = _selectedUserType == 'Parent';
-
-      // 👉 BACK TO ORIGINAL FORMAT (READABLE ROLE)
-      String role = _selectedUserType!;
+      final role     = _selectedUserType!;
 
       try {
-        // ✅ CHECK IF MOBILE ALREADY EXISTS (NEW FIX YOU ASKED)
+        // ✅ Check if mobile already exists
         final existingUser = await _firestore
             .collection('users')
             .where('mobile', isEqualTo: mobile)
             .get();
 
         if (existingUser.docs.isNotEmpty) {
-          _showSnackBar("This mobile number is already registered.");
+          _showSnackBar('This mobile number is already registered.');
+          setState(() => _isLoading = false);
+          return;
+        }
+
+        // ✅ Check if email already exists
+        final existingEmail = await _firestore
+            .collection('users')
+            .where('email', isEqualTo: email)
+            .get();
+
+        if (existingEmail.docs.isNotEmpty) {
+          _showSnackBar('This email is already registered.');
+          setState(() => _isLoading = false);
           return;
         }
 
@@ -375,41 +474,41 @@ class _RegisterPageState extends State<RegisterPage> {
               .get();
 
           if (studentSnapshot.docs.isEmpty) {
-            _showSnackBar("Your child entry is not updated yet!");
+            _showSnackBar('Your child entry is not updated yet!');
+            setState(() => _isLoading = false);
             return;
           }
         }
 
+        // ✅ KEY FIX: use real email for Firebase Auth (not fake mobile@gmail.com)
         UserCredential userCredential =
         await _auth.createUserWithEmailAndPassword(
-          email: "$mobile@gmail.com",
+          email: email,      // ← was '$mobile@gmail.com' before
           password: password,
         );
 
-        String uid = userCredential.user!.uid;
+        final uid = userCredential.user!.uid;
 
-        final userData = {
-          'uid': uid,
-          'name': name,
-          'age': age,
-          'gender': _selectedGender,
-          'userType': role, // 👈 STORES "Teacher", "Parent", etc.
-          'mobile': mobile,
-          'email': email,
+        await _firestore.collection('users').doc(uid).set({
+          'uid'      : uid,
+          'name'     : name,
+          'age'      : age,
+          'gender'   : _selectedGender,
+          'userType' : role,
+          'mobile'   : mobile,
+          'email'    : email,
           'createdAt': FieldValue.serverTimestamp(),
-        };
+        });
 
-        await _firestore.collection('users').doc(uid).set(userData);
+        if (!mounted) return;
 
         if (isParent) {
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(
               builder: (_) => ParentDashboardPage(
-                name: name,
-                age: age,
-                mobile: mobile,
-                gender: _selectedGender!,
+                name: name, age: age,
+                mobile: mobile, gender: _selectedGender!,
                 whoYouAre: _selectedUserType!,
               ),
             ),
@@ -417,33 +516,73 @@ class _RegisterPageState extends State<RegisterPage> {
         } else if (role == 'Admin') {
           Navigator.pushReplacement(
             context,
-            MaterialPageRoute(
-                builder: (_) => const AdminDashboardPage()),
+            MaterialPageRoute(builder: (_) => const AdminDashboardPage()),
           );
         } else {
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(
               builder: (_) => DashboardPage(
-                name: name,
-                age: age,
-                mobile: mobile,
-                gender: _selectedGender!,
+                name: name, age: age,
+                mobile: mobile, gender: _selectedGender!,
                 whoYouAre: _selectedUserType!,
               ),
             ),
           );
         }
       } on FirebaseAuthException catch (e) {
-        _showSnackBar(e.message ?? "Authentication error");
+        String msg = e.message ?? 'Authentication error';
+        if (e.code == 'email-already-in-use') {
+          msg = 'This email is already registered.';
+        }
+        _showSnackBar(msg);
+        setState(() => _isLoading = false);
       } catch (e) {
-        _showSnackBar("Error: $e");
+        _showSnackBar('Error: $e');
+        setState(() => _isLoading = false);
       }
     }
   }
 
   void _showSnackBar(String message) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: _T.navy,
+        shape:
+        RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ),
+    );
   }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _ageController.dispose();
+    _mobileController.dispose();
+    _emailController.dispose();
+    _passwordController.dispose();
+    _confirmPasswordController.dispose();
+    super.dispose();
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+//  SECTION LABEL
+// ─────────────────────────────────────────────────────────────
+class _SectionLabel extends StatelessWidget {
+  final String text;
+  const _SectionLabel(this.text);
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 8),
+    child: Text(text,
+        style: const TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.6,
+            color: _T.textSub)),
+  );
 }
