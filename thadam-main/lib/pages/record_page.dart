@@ -1,16 +1,26 @@
 // lib/pages/record_page.dart
+// FIXES:
+//  1. _OrgPath now uses orgId (random Firestore ID) as the document ID
+//     e.g. organisations/zHu2YWElZr6quFN8ZqjQ/students/...
+//  2. Transfer dialog queries users by orgName field (matching current user's orgName)
+//  3. subscribeToOrgChanges reads both orgId AND orgName correctly
+//  4. Add-student saves correct orgId + orgName
+
+import 'dart:async';
 import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
-import 'student_details_page.dart';
-import 'pdf_report_service.dart';                    // ← NEW
 import 'package:permission_handler/permission_handler.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 
+import 'student_details_page.dart';
+import 'pdf_report_service.dart';
+
 // ─────────────────────────────────────────────────────────────
-//  DESIGN TOKENS  (matches student_detail_page.dart)
+//  DESIGN TOKENS
 // ─────────────────────────────────────────────────────────────
 class _T {
   static const navy      = Color(0xFF0D1B2A);
@@ -33,9 +43,7 @@ class _T {
       InputDecoration(
         labelText: label,
         hintText: hint,
-        prefixIcon: icon != null
-            ? Icon(icon, size: 20, color: textSub)
-            : null,
+        prefixIcon: icon != null ? Icon(icon, size: 20, color: textSub) : null,
         labelStyle: const TextStyle(color: textSub, fontSize: 14),
         hintStyle: TextStyle(color: textSub.withOpacity(0.6), fontSize: 14),
         filled: true,
@@ -58,7 +66,24 @@ class _T {
 }
 
 // ─────────────────────────────────────────────────────────────
-//  SHARED CONFIRM DIALOG
+//  ORG PATH HELPER
+//  FIX: orgId is the RANDOM Firestore document ID (e.g. "zHu2YWElZr6quFN8ZqjQ")
+//       NOT the org name. Path: organisations/{orgId}/students/...
+// ─────────────────────────────────────────────────────────────
+class _OrgPath {
+  final String orgId; // e.g. "zHu2YWElZr6quFN8ZqjQ"
+  const _OrgPath(this.orgId);
+
+  CollectionReference<Map<String, dynamic>> students(FirebaseFirestore fs) =>
+      fs.collection('organisations').doc(orgId).collection('students');
+
+  CollectionReference<Map<String, dynamic>> records(
+      FirebaseFirestore fs, String studentId) =>
+      students(fs).doc(studentId).collection('records');
+}
+
+// ─────────────────────────────────────────────────────────────
+//  CONFIRM DIALOG
 // ─────────────────────────────────────────────────────────────
 Future<bool?> _confirmDialog({
   required BuildContext context,
@@ -75,70 +100,79 @@ Future<bool?> _confirmDialog({
         child: Padding(
           padding: const EdgeInsets.all(22),
           child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                      color: _T.red.withOpacity(0.10),
-                      borderRadius: BorderRadius.circular(8)),
-                  child: const Icon(Icons.warning_amber_rounded,
-                      color: _T.red, size: 24),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                    child: Text(title,
-                        style: const TextStyle(
-                            fontSize: 17,
-                            fontWeight: FontWeight.w700,
-                            color: _T.textPri))),
-              ]),
-              const SizedBox(height: 16),
-              Text(body,
-                  style: const TextStyle(
-                      fontSize: 14, color: _T.textSub, height: 1.6)),
-              const SizedBox(height: 22),
-              Row(children: [
-                Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.pop(context, false),
-                      style: OutlinedButton.styleFrom(
-                          foregroundColor: _T.textSub,
-                          side: const BorderSide(color: _T.border, width: 1.2),
-                          padding:
-                          const EdgeInsets.symmetric(vertical: 13),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8))),
-                      child: const Text('Cancel',
-                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                    )),
-                const SizedBox(width: 12),
-                Expanded(
-                    child: ElevatedButton(
-                      onPressed: () => Navigator.pop(context, true),
-                      style: ElevatedButton.styleFrom(
-                          backgroundColor: danger ? _T.red : _T.teal,
-                          foregroundColor: Colors.white,
-                          elevation: 0,
-                          padding:
-                          const EdgeInsets.symmetric(vertical: 13),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8))),
-                      child: Text(confirmLabel,
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                        color:
+                        (danger ? _T.red : _T.teal).withOpacity(0.10),
+                        borderRadius: BorderRadius.circular(8)),
+                    child: Icon(
+                        danger
+                            ? Icons.warning_amber_rounded
+                            : Icons.sync_rounded,
+                        color: danger ? _T.red : _T.teal,
+                        size: 24),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                      child: Text(title,
                           style: const TextStyle(
-                              fontSize: 14, fontWeight: FontWeight.w700)),
-                    )),
+                              fontSize: 17,
+                              fontWeight: FontWeight.w700,
+                              color: _T.textPri))),
+                ]),
+                const SizedBox(height: 16),
+                Text(body,
+                    style: const TextStyle(
+                        fontSize: 14,
+                        color: _T.textSub,
+                        height: 1.6)),
+                const SizedBox(height: 22),
+                Row(children: [
+                  Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.pop(context, false),
+                        style: OutlinedButton.styleFrom(
+                            foregroundColor: _T.textSub,
+                            side:
+                            const BorderSide(color: _T.border, width: 1.2),
+                            padding:
+                            const EdgeInsets.symmetric(vertical: 13),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8))),
+                        child: const Text('Cancel',
+                            style: TextStyle(
+                                fontSize: 14, fontWeight: FontWeight.w600)),
+                      )),
+                  const SizedBox(width: 12),
+                  Expanded(
+                      child: ElevatedButton(
+                        onPressed: () => Navigator.pop(context, true),
+                        style: ElevatedButton.styleFrom(
+                            backgroundColor: danger ? _T.red : _T.teal,
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            padding:
+                            const EdgeInsets.symmetric(vertical: 13),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8))),
+                        child: Text(confirmLabel,
+                            style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700)),
+                      )),
+                ]),
               ]),
-            ],
-          ),
         ),
       ),
     );
 
 // ─────────────────────────────────────────────────────────────
-//  SECTION LABEL
+//  HELPERS
 // ─────────────────────────────────────────────────────────────
 class _SectionLabel extends StatelessWidget {
   final String text;
@@ -156,9 +190,6 @@ class _SectionLabel extends StatelessWidget {
   );
 }
 
-// ─────────────────────────────────────────────────────────────
-//  DISABILITY CHIP
-// ─────────────────────────────────────────────────────────────
 class _DisabilityChip extends StatelessWidget {
   final String label;
   const _DisabilityChip(this.label);
@@ -178,8 +209,8 @@ class _DisabilityChip extends StatelessWidget {
     final (bg, fg) = _color(label);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-          color: bg, borderRadius: BorderRadius.circular(20)),
+      decoration:
+      BoxDecoration(color: bg, borderRadius: BorderRadius.circular(20)),
       child: Text(label,
           style: TextStyle(
               fontSize: 11,
@@ -190,9 +221,6 @@ class _DisabilityChip extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────
-//  STATUS BADGE
-// ─────────────────────────────────────────────────────────────
 class _StatusBadge extends StatelessWidget {
   final String status;
   const _StatusBadge(this.status);
@@ -240,7 +268,7 @@ class RecordPage extends StatefulWidget {
   const RecordPage({
     super.key,
     required this.userRole,
-    this.filter = "all",
+    this.filter = 'all',
   });
 
   @override
@@ -251,28 +279,196 @@ class _RecordPageState extends State<RecordPage> {
   final _fs   = FirebaseFirestore.instance;
   final _auth = FirebaseAuth.instance;
 
+  // ── Org state ────────────────────────────────────────────
+  // orgId  = random Firestore doc ID  e.g. "zHu2YWElZr6quFN8ZqjQ"
+  // orgName= human-readable name      e.g. "Lovely professional university"
+  String? _orgId;
+  String? _orgName;
+  bool    _orgLoading    = true;
+  bool    _migrationDone = false;
+
+  StreamSubscription<DocumentSnapshot>? _orgSub;
+
+  // ── UI state ─────────────────────────────────────────────
   bool   _ascending      = true;
-  String _selectedStatus = "Active";
-  String _searchQuery    = "";
+  String _selectedStatus = 'Active';
+  String _searchQuery    = '';
   final  _searchCtrl     = TextEditingController();
+  final  Set<String> _generatingPdf = {};
 
-  // Track which student cards are generating a PDF
-  final Set<String> _generatingPdf = {};
+  @override
+  void initState() {
+    super.initState();
+    _subscribeToOrgChanges();
+  }
 
-  // ── Toggle helpers ───────────────────────────────────────────
+  @override
+  void dispose() {
+    _orgSub?.cancel();
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  // ─────────────────────────────────────────────────────────
+  //  FIX 1: Read orgId (random ID) and orgName separately
+  //  orgId  → used for Firestore path
+  //  orgName→ used for display & transfer queries
+  // ─────────────────────────────────────────────────────────
+  void _subscribeToOrgChanges() {
+    final uid = _auth.currentUser?.uid;
+    if (uid == null) {
+      setState(() => _orgLoading = false);
+      return;
+    }
+
+    _orgSub =
+        _fs.collection('users').doc(uid).snapshots().listen((doc) async {
+          if (!mounted) return;
+          final data = doc.data() ?? {};
+
+          // orgId is the random Firestore document ID stored on the user
+          final orgId = (data['orgId'] as String?)?.trim() ?? '';
+          // orgName is the human-readable name
+          final orgName = ((data['orgName'] as String?)?.trim().isNotEmpty == true
+              ? data['orgName'] as String
+              : (data['organisation'] as String?)?.trim() ?? '')
+              .trim();
+
+          setState(() {
+            _orgId      = orgId.isNotEmpty   ? orgId   : null;
+            _orgName    = orgName.isNotEmpty ? orgName : null;
+            _orgLoading = false;
+          });
+
+          // Offer migration only once per session
+          if (_orgId != null && !_migrationDone) {
+            await _checkAndOfferMigration(uid, _orgId!);
+          }
+        }, onError: (_) {
+          if (mounted) setState(() => _orgLoading = false);
+        });
+  }
+
+  // ─────────────────────────────────────────────────────────
+  //  MIGRATION CHECK
+  // ─────────────────────────────────────────────────────────
+  Future<void> _checkAndOfferMigration(String uid, String orgId) async {
+    setState(() => _migrationDone = true);
+
+    final userSnap = await _fs.collection('users').doc(uid).get();
+    if (userSnap.data()?['migrationDone'] == true) return;
+
+    final oldStudents = await _fs
+        .collection('students')
+        .where('createdBy', isEqualTo: uid)
+        .limit(1)
+        .get();
+    if (oldStudents.docs.isEmpty) {
+      await _fs.collection('users').doc(uid).update({'migrationDone': true});
+      return;
+    }
+
+    if (!mounted) return;
+
+    final confirmed = await _confirmDialog(
+      context: context,
+      title: 'Update Records to Organisation',
+      body: 'You have existing student records that are not linked to your '
+          'organisation "$_orgName" yet.\n\nTap "Update Now" to move all '
+          'your records. All data is preserved.',
+      confirmLabel: 'Update Now',
+    );
+
+    if (confirmed == true) await _runMigration(uid, orgId);
+  }
+
+  // ─────────────────────────────────────────────────────────
+  //  ACTUAL MIGRATION
+  // ─────────────────────────────────────────────────────────
+  Future<void> _runMigration(String uid, String orgId) async {
+    _snack('Updating records… please wait.');
+    final orgPath = _OrgPath(orgId);
+
+    try {
+      int totalMigrated = 0;
+      QuerySnapshot snap;
+
+      do {
+        snap = await _fs
+            .collection('students')
+            .where('createdBy', isEqualTo: uid)
+            .limit(100)
+            .get();
+        if (snap.docs.isEmpty) break;
+
+        for (final studentDoc in snap.docs) {
+          final sid   = studentDoc.id;
+          final sData = studentDoc.data() as Map<String, dynamic>;
+
+          await orgPath.students(_fs).doc(sid).set({
+            ...sData,
+            'orgId':        orgId,
+            'orgName':      _orgName ?? '',
+            'organisation': _orgName ?? '',
+          }, SetOptions(merge: true));
+
+          final oldRecords = await _fs
+              .collection('students')
+              .doc(sid)
+              .collection('records')
+              .get();
+
+          final batch = _fs.batch();
+          for (final recDoc in oldRecords.docs) {
+            final newRecRef = orgPath.records(_fs, sid).doc(recDoc.id);
+            batch.set(newRecRef, {
+              ...recDoc.data() as Map<String, dynamic>,
+              'orgId':        orgId,
+              'orgName':      _orgName ?? '',
+              'organisation': _orgName ?? '',
+              'enteredByUid': uid,
+            }, SetOptions(merge: true));
+            batch.delete(recDoc.reference);
+          }
+          await batch.commit();
+          await studentDoc.reference.delete();
+          totalMigrated++;
+        }
+      } while (snap.docs.length == 100);
+
+      await _fs
+          .collection('users')
+          .doc(uid)
+          .update({'migrationDone': true});
+
+      if (!mounted) return;
+      _snack(totalMigrated > 0
+          ? '✓ $totalMigrated student(s) updated to "$_orgName".'
+          : 'All records are already up to date.');
+    } catch (e) {
+      if (!mounted) return;
+      _snack('Update failed: $e');
+    }
+  }
+
+  _OrgPath get _orgPath => _OrgPath(_orgId!);
+
+  // ─────────────────────────────────────────────────────────
+  //  TOGGLE / DELETE
+  // ─────────────────────────────────────────────────────────
   Future<void> _toggleStatus(String id, String current) =>
-      _fs.collection('students').doc(id).update(
+      _orgPath.students(_fs).doc(id).update(
           {'status': current == 'Active' ? 'Inactive' : 'Active'});
 
   Future<void> _togglePriority(String id, bool current) =>
-      _fs.collection('students').doc(id).update({'isPriority': !current});
+      _orgPath.students(_fs).doc(id).update({'isPriority': !current});
 
-  // ── Delete ───────────────────────────────────────────────────
   Future<void> _deleteStudent(String id) async {
     final ok = await _confirmDialog(
       context: context,
       title: 'Delete Student',
-      body: 'Are you sure you want to permanently delete this student record?\nThis action cannot be undone.',
+      body: 'Are you sure you want to permanently delete this student record?\n'
+          'This action cannot be undone.',
       confirmLabel: 'Delete',
       danger: true,
     );
@@ -280,31 +476,28 @@ class _RecordPageState extends State<RecordPage> {
 
     try {
       try {
-        final ref = FirebaseStorage.instance.ref().child('students/$id');
+        final ref  = FirebaseStorage.instance.ref().child('students/$id');
         final list = await ref.listAll();
         for (final item in list.items) await item.delete();
       } catch (_) {}
 
-      await _fs.collection('students').doc(id).delete();
+      final records = await _orgPath.records(_fs, id).get();
+      final batch   = _fs.batch();
+      for (final r in records.docs) batch.delete(r.reference);
+      await batch.commit();
+
+      await _orgPath.students(_fs).doc(id).delete();
+
       if (!mounted) return;
       _snack('Student deleted successfully');
     } catch (e) {
-      _snack('Delete failed');
+      _snack('Delete failed: $e');
     }
   }
 
-  void _snack(String msg) => ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(
-      content: Text(msg, style: const TextStyle(fontSize: 14)),
-      behavior: SnackBarBehavior.floating,
-      backgroundColor: _T.navy,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-    ),
-  );
-
-  // ─────────────────────────────────────────────────────────────
-  //  PDF  — now delegates to PdfReportService
-  // ─────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────
+  //  PDF
+  // ─────────────────────────────────────────────────────────
   Future<void> _generatePdf(
       String studentId, Map<String, dynamic> student) async {
     if (_generatingPdf.contains(studentId)) return;
@@ -313,14 +506,10 @@ class _RecordPageState extends State<RecordPage> {
     try {
       await Permission.storage.request();
 
-      // Fetch all records ordered by date
-      final snap = await _fs
-          .collection('students')
-          .doc(studentId)
-          .collection('records')
+      final snap = await _orgPath
+          .records(_fs, studentId)
           .orderBy('date')
           .get();
-
       final records = snap.docs
           .map((d) => d.data() as Map<String, dynamic>)
           .toList();
@@ -332,7 +521,7 @@ class _RecordPageState extends State<RecordPage> {
         gender:      student['gender']      ?? 'Not specified',
         age:         student['age']?.toString() ?? 'N/A',
         phone:       student['parentPhone'] ?? '',
-        schoolName:  'Thadam',              // ← change to your school name
+        schoolName:  _orgName              ?? 'School',
         allRecords:  records,
       );
     } catch (e) {
@@ -343,23 +532,42 @@ class _RecordPageState extends State<RecordPage> {
     }
   }
 
-  // ── Transfer ─────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────
+  //  FIX 2: TRANSFER — query by orgName field
+  // ─────────────────────────────────────────────────────────
   String _cap(String s) =>
       s.isEmpty ? s : s[0].toUpperCase() + s.substring(1).toLowerCase();
 
   Future<void> _showTransferDialog(
       String studentId, Map<String, dynamic> student) async {
-    String selectedRole = 'Therapist';
+    if (_orgName == null) {
+      _snack('Organisation not set. Cannot transfer.');
+      return;
+    }
+
+    String selectedRole    = 'Therapist';
     String? selectedUserId;
     String? selectedUserName;
     List<QueryDocumentSnapshot> users = [];
 
+    // FIX: query by orgName field — this is what's stored on user docs
     Future<void> loadUsers(String role) async {
       final snap = await _fs
           .collection('users')
           .where('userType', isEqualTo: role)
+          .where('orgName', isEqualTo: _orgName)
           .get();
       users = snap.docs;
+
+      // Also try 'organisation' field as fallback for older records
+      if (users.isEmpty) {
+        final snap2 = await _fs
+            .collection('users')
+            .where('userType', isEqualTo: role)
+            .where('organisation', isEqualTo: _orgName)
+            .get();
+        users = snap2.docs;
+      }
     }
 
     await loadUsers(selectedRole);
@@ -367,7 +575,8 @@ class _RecordPageState extends State<RecordPage> {
     showDialog(
       context: context,
       builder: (_) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape:
+        RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         insetPadding:
         const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
         child: StatefulBuilder(builder: (ctx, setD) {
@@ -380,8 +589,8 @@ class _RecordPageState extends State<RecordPage> {
                 padding: const EdgeInsets.fromLTRB(20, 22, 16, 18),
                 decoration: const BoxDecoration(
                     color: _T.navy,
-                    borderRadius:
-                    BorderRadius.vertical(top: Radius.circular(20))),
+                    borderRadius: BorderRadius.vertical(
+                        top: Radius.circular(20))),
                 child: Row(children: [
                   const Icon(Icons.swap_horiz_rounded,
                       color: _T.accent, size: 26),
@@ -401,19 +610,20 @@ class _RecordPageState extends State<RecordPage> {
                 ]),
               ),
 
-              // Body
               Padding(
                 padding: const EdgeInsets.all(20),
                 child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      // Student badge
                       Container(
                         padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
                             color: _T.tealLight,
                             borderRadius: BorderRadius.circular(10),
                             border: Border.all(
-                                color: _T.teal.withOpacity(0.3), width: 1.2)),
+                                color: _T.teal.withOpacity(0.3),
+                                width: 1.2)),
                         child: Row(children: [
                           const Icon(Icons.person_outline_rounded,
                               size: 18, color: _T.teal),
@@ -423,6 +633,31 @@ class _RecordPageState extends State<RecordPage> {
                                   fontSize: 15,
                                   fontWeight: FontWeight.w700,
                                   color: _T.teal)),
+                        ]),
+                      ),
+                      const SizedBox(height: 8),
+                      // Org context
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                            color: _T.surface,
+                            borderRadius: BorderRadius.circular(8),
+                            border:
+                            Border.all(color: _T.border)),
+                        child: Row(children: [
+                          const Icon(Icons.business_outlined,
+                              size: 13, color: _T.textSub),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              'Within: ${_orgName ?? ''}',
+                              style: const TextStyle(
+                                  fontSize: 11,
+                                  color: _T.textSub,
+                                  fontWeight: FontWeight.w500),
+                            ),
+                          ),
                         ]),
                       ),
                       const SizedBox(height: 20),
@@ -435,7 +670,8 @@ class _RecordPageState extends State<RecordPage> {
                             .map((r) => DropdownMenuItem(
                             value: r,
                             child: Text(_cap(r),
-                                style: const TextStyle(fontSize: 14))))
+                                style: const TextStyle(
+                                    fontSize: 14))))
                             .toList(),
                         onChanged: (val) async {
                           selectedRole   = val!;
@@ -447,26 +683,60 @@ class _RecordPageState extends State<RecordPage> {
                       const SizedBox(height: 16),
 
                       const _SectionLabel('SELECT USER'),
-                      DropdownButtonFormField<String>(
-                        hint: const Text('Choose a user',
-                            style: TextStyle(fontSize: 14)),
-                        value: selectedUserId,
-                        decoration: _T.inputDec('User'),
-                        items: users.map((doc) {
-                          final d = doc.data() as Map<String, dynamic>;
-                          return DropdownMenuItem<String>(
-                              value: d['uid'],
-                              child: Text(d['name'] ?? 'User',
-                                  style: const TextStyle(fontSize: 14)));
-                        }).toList(),
-                        onChanged: (val) {
-                          selectedUserId = val;
-                          final doc = users.firstWhere(
-                                  (d) => (d.data() as Map)['uid'] == val);
-                          selectedUserName = (doc.data() as Map)['name'];
-                          setD(() {});
-                        },
-                      ),
+                      if (users.isEmpty)
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                              color: _T.orange.withOpacity(0.08),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                  color: _T.orange.withOpacity(0.3))),
+                          child: Row(children: [
+                            const Icon(Icons.info_outline_rounded,
+                                size: 16, color: _T.orange),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'No $selectedRole found in $_orgName',
+                                style: const TextStyle(
+                                    fontSize: 12,
+                                    color: _T.orange,
+                                    fontWeight: FontWeight.w500),
+                              ),
+                            ),
+                          ]),
+                        )
+                      else
+                        DropdownButtonFormField<String>(
+                          hint: const Text('Choose a user',
+                              style: TextStyle(fontSize: 14)),
+                          value: selectedUserId,
+                          decoration: _T.inputDec('User'),
+                          items: users.map((doc) {
+                            final d =
+                            doc.data() as Map<String, dynamic>;
+                            final uid =
+                                (d['uid'] as String?) ?? doc.id;
+                            return DropdownMenuItem<String>(
+                                value: uid,
+                                child: Text(d['name'] ?? 'User',
+                                    style: const TextStyle(
+                                        fontSize: 14)));
+                          }).toList(),
+                          onChanged: (val) {
+                            selectedUserId = val;
+                            final doc = users.firstWhere((d) {
+                              final data =
+                              d.data() as Map<String, dynamic>;
+                              return ((data['uid'] as String?) ??
+                                  d.id) ==
+                                  val;
+                            });
+                            selectedUserName =
+                            (doc.data() as Map)['name'];
+                            setD(() {});
+                          },
+                        ),
                     ]),
               ),
 
@@ -490,10 +760,12 @@ class _RecordPageState extends State<RecordPage> {
                             padding: const EdgeInsets.symmetric(
                                 vertical: 14),
                             shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10))),
+                                borderRadius:
+                                BorderRadius.circular(10))),
                         child: const Text('Cancel',
                             style: TextStyle(
-                                fontSize: 14, fontWeight: FontWeight.w600)),
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600)),
                       )),
                   const SizedBox(width: 12),
                   Expanded(
@@ -503,7 +775,8 @@ class _RecordPageState extends State<RecordPage> {
                             size: 20),
                         label: const Text('Transfer',
                             style: TextStyle(
-                                fontSize: 14, fontWeight: FontWeight.w700)),
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700)),
                         style: ElevatedButton.styleFrom(
                             backgroundColor: selectedUserId != null
                                 ? _T.teal
@@ -513,7 +786,8 @@ class _RecordPageState extends State<RecordPage> {
                             padding: const EdgeInsets.symmetric(
                                 vertical: 14),
                             shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10))),
+                                borderRadius:
+                                BorderRadius.circular(10))),
                         onPressed: selectedUserId == null
                             ? null
                             : () async {
@@ -532,40 +806,55 @@ class _RecordPageState extends State<RecordPage> {
     );
   }
 
-  Future<void> _transferStudent(String studentId,
-      Map<String, dynamic> student, String toId, String toName) async {
+  Future<void> _transferStudent(
+      String studentId,
+      Map<String, dynamic> student,
+      String toId,
+      String toName) async {
     final fromId = _auth.currentUser!.uid;
     if (fromId == toId) {
       _snack('Cannot transfer to yourself');
       return;
     }
     try {
-      final oldRef = _fs.collection('students').doc(studentId);
-      final records = await oldRef.collection('records').get();
+      final oldStudentRef = _orgPath.students(_fs).doc(studentId);
+      final oldRecords    = await _orgPath.records(_fs, studentId).get();
+      final newStudentRef = _orgPath.students(_fs).doc();
 
-      final newRef = await _fs.collection('students').add({
+      await newStudentRef.set({
         ...student,
-        'createdBy':        toId,
-        'transferredFrom':  fromId,
-        'transferredDate':  Timestamp.now(),
+        'createdBy':       toId,
+        'transferredFrom': fromId,
+        'transferredDate': Timestamp.now(),
+        'orgId':           _orgId,
+        'orgName':         _orgName ?? '',
+        'organisation':    _orgName ?? '',
       });
 
-      for (var r in records.docs) {
-        await newRef.collection('records').add(r.data());
+      final batch = _fs.batch();
+      for (final r in oldRecords.docs) {
+        final newRecRef =
+        _orgPath.records(_fs, newStudentRef.id).doc();
+        batch.set(newRecRef, {
+          ...r.data() as Map<String, dynamic>,
+          'studentId': newStudentRef.id,
+        });
+        batch.delete(r.reference);
       }
+      await batch.commit();
+      await oldStudentRef.delete();
 
       await _fs.collection('transfer_history').add({
         'studentName':  student['name'],
         'studentOldId': studentId,
-        'studentNewId': newRef.id,
+        'studentNewId': newStudentRef.id,
         'fromUser':     fromId,
         'toUser':       toId,
         'toUserName':   toName,
+        'orgId':        _orgId,
+        'orgName':      _orgName,
         'date':         Timestamp.now(),
       });
-
-      for (var r in records.docs) await r.reference.delete();
-      await oldRef.delete();
 
       if (!mounted) return;
       _snack('Student transferred successfully');
@@ -574,16 +863,20 @@ class _RecordPageState extends State<RecordPage> {
     }
   }
 
-  // ── Add Student Dialog ────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────
+  //  ADD STUDENT
+  // ─────────────────────────────────────────────────────────
   Future<void> _addStudentDialog() async {
-    final formKey = GlobalKey<FormState>();
-    String name = '', age = '', gender = '', disability = '',
-        parentPhone = '';
+    final formKey  = GlobalKey<FormState>();
+    String name = '', age = '', gender = '', disability = '', parentPhone = '';
     DateTime selDate = DateTime.now();
 
     const disabilityOptions = [
-      'Hearing Impairment', 'Visual Impairment', 'Locomotor Disability',
-      'Intellectual Disability', 'Autism Spectrum Disorder',
+      'Hearing Impairment',
+      'Visual Impairment',
+      'Locomotor Disability',
+      'Intellectual Disability',
+      'Autism Spectrum Disorder',
       'Multiple Disability',
     ];
 
@@ -593,16 +886,15 @@ class _RecordPageState extends State<RecordPage> {
     await showDialog(
       context: context,
       builder: (_) => Dialog(
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20)),
+        shape:
+        RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         insetPadding:
         const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
         child: StatefulBuilder(builder: (ctx, setD) {
           return Container(
             constraints: const BoxConstraints(maxWidth: 480),
             child: Column(mainAxisSize: MainAxisSize.min, children: [
-
-              // ── Header ──
+              // Header
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.fromLTRB(20, 22, 16, 18),
@@ -629,7 +921,6 @@ class _RecordPageState extends State<RecordPage> {
                 ]),
               ),
 
-              // ── Body ──
               Flexible(
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.all(20),
@@ -638,7 +929,36 @@ class _RecordPageState extends State<RecordPage> {
                     child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const _SectionLabel('DATE OF ENROLMENT'),
+                          // Org badge
+                          if (_orgName != null)
+                            Container(
+                              margin:
+                              const EdgeInsets.only(bottom: 16),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 8),
+                              decoration: BoxDecoration(
+                                  color: _T.tealLight,
+                                  borderRadius:
+                                  BorderRadius.circular(8),
+                                  border: Border.all(
+                                      color:
+                                      _T.teal.withOpacity(0.3))),
+                              child: Row(children: [
+                                const Icon(
+                                    Icons.business_outlined,
+                                    size: 14,
+                                    color: _T.teal),
+                                const SizedBox(width: 8),
+                                Text('Adding to: $_orgName',
+                                    style: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        color: _T.teal)),
+                              ]),
+                            ),
+
+                          const _SectionLabel(
+                              'DATE OF ENROLMENT'),
                           InkWell(
                             onTap: () async {
                               final p = await showDatePicker(
@@ -647,7 +967,8 @@ class _RecordPageState extends State<RecordPage> {
                                 firstDate: DateTime(2000),
                                 lastDate: DateTime(2100),
                                 builder: (c, child) => Theme(
-                                    data: ThemeData.light().copyWith(
+                                    data:
+                                    ThemeData.light().copyWith(
                                         colorScheme:
                                         const ColorScheme.light(
                                             primary: _T.teal)),
@@ -664,7 +985,8 @@ class _RecordPageState extends State<RecordPage> {
                                   borderRadius:
                                   BorderRadius.circular(10),
                                   border: Border.all(
-                                      color: _T.border, width: 1.2)),
+                                      color: _T.border,
+                                      width: 1.2)),
                               child: Row(children: [
                                 const Icon(
                                     Icons.calendar_today_outlined,
@@ -679,7 +1001,8 @@ class _RecordPageState extends State<RecordPage> {
                                         fontSize: 15)),
                                 const Spacer(),
                                 const Icon(Icons.chevron_right,
-                                    size: 20, color: _T.textSub),
+                                    size: 20,
+                                    color: _T.textSub),
                               ]),
                             ),
                           ),
@@ -689,7 +1012,8 @@ class _RecordPageState extends State<RecordPage> {
                           TextFormField(
                             decoration: _T.inputDec('Full Name',
                                 icon: Icons.badge_outlined),
-                            style: const TextStyle(fontSize: 14),
+                            style:
+                            const TextStyle(fontSize: 14),
                             onChanged: (v) => name = v,
                             validator: (v) =>
                             v!.isEmpty ? 'Enter name' : null,
@@ -698,7 +1022,8 @@ class _RecordPageState extends State<RecordPage> {
                           TextFormField(
                             decoration: _T.inputDec('Age',
                                 icon: Icons.cake_outlined),
-                            style: const TextStyle(fontSize: 14),
+                            style:
+                            const TextStyle(fontSize: 14),
                             keyboardType: TextInputType.number,
                             onChanged: (v) => age = v,
                             validator: (v) =>
@@ -706,7 +1031,8 @@ class _RecordPageState extends State<RecordPage> {
                           ),
                           const SizedBox(height: 14),
                           DropdownButtonFormField<String>(
-                            value: gender.isEmpty ? null : gender,
+                            value:
+                            gender.isEmpty ? null : gender,
                             decoration: _T.inputDec('Gender'),
                             items: ['Male', 'Female', 'Other']
                                 .map((e) => DropdownMenuItem(
@@ -717,14 +1043,17 @@ class _RecordPageState extends State<RecordPage> {
                                 .toList(),
                             onChanged: (v) =>
                                 setD(() => gender = v!),
-                            validator: (v) =>
-                            v == null ? 'Select gender' : null,
+                            validator: (v) => v == null
+                                ? 'Select gender'
+                                : null,
                           ),
                           const SizedBox(height: 14),
 
                           const _SectionLabel('DISABILITY'),
                           DropdownButtonFormField<String>(
-                            value: disability.isEmpty ? null : disability,
+                            value: disability.isEmpty
+                                ? null
+                                : disability,
                             decoration: _T.inputDec('Type'),
                             items: disabilityOptions
                                 .map((e) => DropdownMenuItem(
@@ -735,12 +1064,15 @@ class _RecordPageState extends State<RecordPage> {
                                 .toList(),
                             onChanged: (v) {
                               disability   = v!;
-                              showMultiple = v == 'Multiple Disability';
-                              if (!showMultiple) multipleSelected.clear();
+                              showMultiple =
+                                  v == 'Multiple Disability';
+                              if (!showMultiple)
+                                multipleSelected.clear();
                               setD(() {});
                             },
-                            validator: (v) =>
-                            v == null ? 'Select disability' : null,
+                            validator: (v) => v == null
+                                ? 'Select disability'
+                                : null,
                           ),
 
                           if (showMultiple) ...[
@@ -752,35 +1084,43 @@ class _RecordPageState extends State<RecordPage> {
                                   borderRadius:
                                   BorderRadius.circular(10),
                                   border: Border.all(
-                                      color: _T.border, width: 1.2)),
+                                      color: _T.border,
+                                      width: 1.2)),
                               child: Column(
                                 crossAxisAlignment:
                                 CrossAxisAlignment.start,
                                 children: [
-                                  const Text('Select all that apply',
+                                  const Text(
+                                      'Select all that apply',
                                       style: TextStyle(
                                           fontSize: 12,
                                           color: _T.textSub,
-                                          fontWeight: FontWeight.w600)),
+                                          fontWeight:
+                                          FontWeight.w600)),
                                   const SizedBox(height: 6),
                                   ...disabilityOptions
                                       .where((e) =>
                                   e != 'Multiple Disability')
-                                      .map((e) => CheckboxListTile(
-                                    dense: true,
-                                    title: Text(e,
-                                        style: const TextStyle(
-                                            fontSize: 14)),
-                                    value: multipleSelected
-                                        .contains(e),
-                                    activeColor: _T.teal,
-                                    contentPadding: EdgeInsets.zero,
-                                    onChanged: (v) => setD(() {
-                                      v == true
-                                          ? multipleSelected.add(e)
-                                          : multipleSelected.remove(e);
-                                    }),
-                                  )),
+                                      .map((e) =>
+                                      CheckboxListTile(
+                                        dense: true,
+                                        title: Text(e,
+                                            style: const TextStyle(
+                                                fontSize: 14)),
+                                        value: multipleSelected
+                                            .contains(e),
+                                        activeColor: _T.teal,
+                                        contentPadding:
+                                        EdgeInsets.zero,
+                                        onChanged: (v) =>
+                                            setD(() {
+                                              v == true
+                                                  ? multipleSelected
+                                                  .add(e)
+                                                  : multipleSelected
+                                                  .remove(e);
+                                            }),
+                                      )),
                                 ],
                               ),
                             ),
@@ -792,16 +1132,16 @@ class _RecordPageState extends State<RecordPage> {
                             decoration: _T.inputDec(
                                 'Parent Phone Number',
                                 icon: Icons.phone_outlined),
-                            style: const TextStyle(fontSize: 14),
+                            style:
+                            const TextStyle(fontSize: 14),
                             keyboardType: TextInputType.phone,
                             onChanged: (v) => parentPhone = v,
                             validator: (v) {
-                              if (v == null || v.isEmpty) {
+                              if (v == null || v.isEmpty)
                                 return 'Enter phone number';
-                              }
-                              if (!RegExp(r'^[0-9]{10}$').hasMatch(v)) {
+                              if (!RegExp(r'^[0-9]{10}$')
+                                  .hasMatch(v))
                                 return 'Enter valid 10-digit number';
-                              }
                               return null;
                             },
                           ),
@@ -810,13 +1150,15 @@ class _RecordPageState extends State<RecordPage> {
                 ),
               ),
 
-              // ── Footer ──
+              // Footer
               Container(
-                padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
+                padding:
+                const EdgeInsets.fromLTRB(20, 14, 20, 20),
                 decoration: BoxDecoration(
                     color: _T.surface,
                     border: const Border(
-                        top: BorderSide(color: _T.border, width: 1.2)),
+                        top: BorderSide(
+                            color: _T.border, width: 1.2)),
                     borderRadius: const BorderRadius.vertical(
                         bottom: Radius.circular(20))),
                 child: Row(children: [
@@ -857,8 +1199,13 @@ class _RecordPageState extends State<RecordPage> {
                                 borderRadius:
                                 BorderRadius.circular(10))),
                         onPressed: () async {
-                          if (!formKey.currentState!.validate()) return;
-                          await _fs.collection('students').add({
+                          if (!formKey.currentState!.validate())
+                            return;
+                          final uid = _auth.currentUser!.uid;
+
+                          // FIX: use orgId (random doc ID) for path
+                          // store both orgId and orgName on student doc
+                          await _orgPath.students(_fs).add({
                             'name':        name,
                             'age':         age,
                             'gender':      gender,
@@ -866,12 +1213,17 @@ class _RecordPageState extends State<RecordPage> {
                                 ? multipleSelected.join(', ')
                                 : disability,
                             'parentPhone': parentPhone,
-                            'createdAt':   Timestamp.fromDate(selDate),
-                            'createdBy':   _auth.currentUser!.uid,
+                            'createdAt':
+                            Timestamp.fromDate(selDate),
+                            'createdBy':   uid,
                             'role':        widget.userRole,
                             'status':      'Active',
                             'isPriority':  false,
+                            'orgId':       _orgId,
+                            'orgName':     _orgName ?? '',
+                            'organisation': _orgName ?? '',
                           });
+
                           if (!mounted) return;
                           Navigator.pop(ctx);
                         },
@@ -885,20 +1237,85 @@ class _RecordPageState extends State<RecordPage> {
     );
   }
 
-  // ── Build ────────────────────────────────────────────────────
+  void _snack(String msg) =>
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(msg, style: const TextStyle(fontSize: 14)),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: _T.navy,
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8)),
+        ),
+      );
+
+  // ─────────────────────────────────────────────────────────
+  //  BUILD
+  // ─────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
-    final userId = _auth.currentUser!.uid;
+    if (_orgLoading) {
+      return const Scaffold(
+        backgroundColor: _T.surface,
+        body: Center(
+            child: CircularProgressIndicator(color: _T.teal)),
+      );
+    }
 
-    Query query = _fs.collection('students');
+    if (_orgId == null && widget.userRole != 'parent') {
+      return Scaffold(
+        backgroundColor: _T.surface,
+        appBar: AppBar(
+          backgroundColor: _T.navy,
+          foregroundColor: Colors.white,
+          title: const Text('Student Profiles'),
+        ),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(32),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                    color: _T.orange.withOpacity(0.1),
+                    shape: BoxShape.circle),
+                child: const Icon(Icons.business_outlined,
+                    size: 48, color: _T.orange),
+              ),
+              const SizedBox(height: 20),
+              const Text('Organisation Not Set',
+                  style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: _T.textPri)),
+              const SizedBox(height: 10),
+              const Text(
+                'Please go to your Profile and set your organisation '
+                    'before managing students.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                    fontSize: 14,
+                    color: _T.textSub,
+                    height: 1.6),
+              ),
+            ]),
+          ),
+        ),
+      );
+    }
+
+    Query<Map<String, dynamic>> query;
 
     if (widget.userRole == 'parent') {
+      query =
+      _fs.collection('students') as Query<Map<String, dynamic>>;
       final phone = _auth.currentUser!.email!.split('@').first;
       query = query
           .where('parentPhone', isEqualTo: phone)
           .where('status', isEqualTo: 'Active');
     } else {
-      query = query.where('createdBy', isEqualTo: userId);
+      final uid = _auth.currentUser!.uid;
+      query = _orgPath.students(_fs).where('createdBy', isEqualTo: uid);
+
       if (widget.filter == 'active') {
         query = query.where('status', isEqualTo: 'Active');
       } else if (widget.filter == 'priority') {
@@ -924,7 +1341,9 @@ class _RecordPageState extends State<RecordPage> {
                     fontWeight: FontWeight.w700,
                     color: Colors.white)),
             Text(
-                widget.filter == 'priority'
+                _orgName != null
+                    ? _orgName!
+                    : widget.filter == 'priority'
                     ? 'Priority students'
                     : widget.filter == 'active'
                     ? 'Active students'
@@ -934,13 +1353,12 @@ class _RecordPageState extends State<RecordPage> {
           ],
         ),
         actions: [
-          // Status filter dropdown
           if (widget.userRole != 'parent' && widget.filter == 'all')
             Padding(
               padding: const EdgeInsets.only(right: 8),
               child: Container(
-                padding:
-                const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
                     color: Colors.white.withOpacity(0.10),
                     borderRadius: BorderRadius.circular(8)),
@@ -957,17 +1375,18 @@ class _RecordPageState extends State<RecordPage> {
                         value: e,
                         child: Text(e,
                             style: const TextStyle(
-                                color: Colors.white, fontSize: 14))))
+                                color: Colors.white,
+                                fontSize: 14))))
                         .toList(),
                     onChanged: (v) {
-                      if (v != null) setState(() => _selectedStatus = v);
+                      if (v != null)
+                        setState(() => _selectedStatus = v);
                     },
                   ),
                 ),
               ),
             ),
 
-          // Sort button
           IconButton(
             icon: Icon(
                 _ascending
@@ -975,10 +1394,10 @@ class _RecordPageState extends State<RecordPage> {
                     : Icons.sort_rounded,
                 size: 22),
             tooltip: 'Sort by name',
-            onPressed: () => setState(() => _ascending = !_ascending),
+            onPressed: () =>
+                setState(() => _ascending = !_ascending),
           ),
 
-          // Add student
           if (widget.userRole != 'parent')
             Padding(
               padding: const EdgeInsets.only(right: 12),
@@ -1002,8 +1421,6 @@ class _RecordPageState extends State<RecordPage> {
       ),
 
       body: Column(children: [
-
-        // ── Search bar ──────────────────────────────────────────
         Container(
           color: _T.navy,
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
@@ -1018,7 +1435,8 @@ class _RecordPageState extends State<RecordPage> {
               decoration: InputDecoration(
                 hintText: 'Search students…',
                 hintStyle: TextStyle(
-                    color: Colors.white.withOpacity(0.45), fontSize: 15),
+                    color: Colors.white.withOpacity(0.45),
+                    fontSize: 15),
                 prefixIcon: const Icon(Icons.search_rounded,
                     color: Colors.white54, size: 22),
                 suffixIcon: _searchQuery.isNotEmpty
@@ -1038,14 +1456,14 @@ class _RecordPageState extends State<RecordPage> {
           ),
         ),
 
-        // ── Student list ────────────────────────────────────────
         Expanded(
           child: StreamBuilder<QuerySnapshot>(
             stream: query.snapshots(),
             builder: (ctx, snap) {
               if (!snap.hasData) {
                 return const Center(
-                    child: CircularProgressIndicator(color: _T.teal));
+                    child: CircularProgressIndicator(
+                        color: _T.teal));
               }
 
               var docs = snap.data!.docs;
@@ -1062,7 +1480,8 @@ class _RecordPageState extends State<RecordPage> {
 
               if (docs.isEmpty) {
                 return Center(
-                  child: Column(mainAxisSize: MainAxisSize.min,
+                  child: Column(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(Icons.person_search_rounded,
                             size: 60,
@@ -1077,7 +1496,6 @@ class _RecordPageState extends State<RecordPage> {
                 );
               }
 
-              // Sort: priority first, then name
               docs.sort((a, b) {
                 final ad = a.data() as Map<String, dynamic>;
                 final bd = b.data() as Map<String, dynamic>;
@@ -1094,35 +1512,38 @@ class _RecordPageState extends State<RecordPage> {
                 padding: const EdgeInsets.symmetric(
                     horizontal: 16, vertical: 16),
                 itemCount: docs.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 12),
+                separatorBuilder: (_, __) =>
+                const SizedBox(height: 12),
                 itemBuilder: (_, i) {
-                  final doc  = docs[i];
-                  final data = doc.data() as Map<String, dynamic>;
+                  final doc        = docs[i];
+                  final data       = doc.data() as Map<String, dynamic>;
                   final id         = doc.id;
                   final status     = data['status'] ?? 'Active';
                   final isPriority = data['isPriority'] == true;
 
                   return _StudentCard(
-                    name:        data['name'] ?? '',
-                    age:         data['age']?.toString() ?? '',
-                    gender:      data['gender'] ?? '',
-                    disability:  data['disability'] ?? '',
-                    status:      status,
-                    isPriority:  isPriority,
-                    isParent:    widget.userRole == 'parent',
-                    isGeneratingPdf: _generatingPdf.contains(id),  // ← NEW
+                    name:            data['name'] ?? '',
+                    age:             data['age']?.toString() ?? '',
+                    gender:          data['gender'] ?? '',
+                    disability:      data['disability'] ?? '',
+                    status:          status,
+                    isPriority:      isPriority,
+                    isParent:        widget.userRole == 'parent',
+                    isGeneratingPdf: _generatingPdf.contains(id),
                     onTap: () => Navigator.push(
                         context,
                         MaterialPageRoute(
                             builder: (_) => StudentDetailPage(
                                 studentId:   id,
                                 studentName: data['name'] ?? '',
-                                userRole:    widget.userRole))),
-                    onStatus:    () => _toggleStatus(id, status),
-                    onPriority:  () => _togglePriority(id, isPriority),
-                    onShare:     () => _generatePdf(id, data),
-                    onTransfer:  () => _showTransferDialog(id, data),
-                    onDelete:    () => _deleteStudent(id),
+                                userRole:    widget.userRole,
+                                orgId:       _orgId,
+                                orgName:     _orgName))),
+                    onStatus:   () => _toggleStatus(id, status),
+                    onPriority: () => _togglePriority(id, isPriority),
+                    onShare:    () => _generatePdf(id, data),
+                    onTransfer: () => _showTransferDialog(id, data),
+                    onDelete:   () => _deleteStudent(id),
                   );
                 },
               );
@@ -1135,7 +1556,7 @@ class _RecordPageState extends State<RecordPage> {
 }
 
 // ─────────────────────────────────────────────────────────────
-//  STUDENT CARD WIDGET
+//  STUDENT CARD
 // ─────────────────────────────────────────────────────────────
 class _StudentCard extends StatelessWidget {
   final String name, age, gender, disability, status;
@@ -1180,12 +1601,9 @@ class _StudentCard extends StatelessWidget {
             ),
           ),
           child: Column(children: [
-
-            // ── Top row ──────────────────────────────────────
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 14, 8, 0),
               child: Row(children: [
-                // Avatar
                 Container(
                   width: 44,
                   height: 44,
@@ -1197,48 +1615,56 @@ class _StudentCard extends StatelessWidget {
                   ),
                   child: Center(
                     child: Text(
-                      name.isNotEmpty ? name[0].toUpperCase() : '?',
+                      name.isNotEmpty
+                          ? name[0].toUpperCase()
+                          : '?',
                       style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.w800,
-                          color: isPriority ? _T.amber : _T.teal),
+                          color: isPriority
+                              ? _T.amber
+                              : _T.teal),
                     ),
                   ),
                 ),
                 const SizedBox(width: 14),
-
-                // Name + chips
                 Expanded(
                   child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                      crossAxisAlignment:
+                      CrossAxisAlignment.start,
                       children: [
                         Row(children: [
                           Flexible(
-                            child: Text(name,
-                                style: const TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w700,
-                                    color: _T.textPri)),
-                          ),
+                              child: Text(name,
+                                  style: const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w700,
+                                      color: _T.textPri))),
                           if (isPriority) ...[
                             const SizedBox(width: 8),
                             Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 3),
+                              padding:
+                              const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 3),
                               decoration: BoxDecoration(
-                                  color: _T.amber.withOpacity(0.15),
+                                  color: _T.amber
+                                      .withOpacity(0.15),
                                   borderRadius:
                                   BorderRadius.circular(4)),
                               child: const Row(
-                                  mainAxisSize: MainAxisSize.min,
+                                  mainAxisSize:
+                                  MainAxisSize.min,
                                   children: [
                                     Icon(Icons.star_rounded,
-                                        size: 11, color: _T.amber),
+                                        size: 11,
+                                        color: _T.amber),
                                     SizedBox(width: 4),
                                     Text('Priority',
                                         style: TextStyle(
                                             fontSize: 10,
-                                            fontWeight: FontWeight.w800,
+                                            fontWeight:
+                                            FontWeight.w800,
                                             color: _T.amber)),
                                   ]),
                             ),
@@ -1253,7 +1679,6 @@ class _StudentCard extends StatelessWidget {
                       ]),
                 ),
 
-                // Menu — show spinner on the PDF item while generating
                 if (!isParent)
                   PopupMenuButton<String>(
                     icon: const Icon(Icons.more_vert,
@@ -1275,14 +1700,17 @@ class _StudentCard extends StatelessWidget {
                           child: Row(children: [
                             Icon(
                                 status == 'Active'
-                                    ? Icons.pause_circle_outline_rounded
-                                    : Icons.play_circle_outline_rounded,
+                                    ? Icons
+                                    .pause_circle_outline_rounded
+                                    : Icons
+                                    .play_circle_outline_rounded,
                                 size: 18,
                                 color: _T.textSub),
                             const SizedBox(width: 10),
                             Text(
                                 'Mark ${status == 'Active' ? 'Inactive' : 'Active'}',
-                                style: const TextStyle(fontSize: 14)),
+                                style: const TextStyle(
+                                    fontSize: 14)),
                           ])),
                       PopupMenuItem(
                           value: 'priority',
@@ -1298,23 +1726,24 @@ class _StudentCard extends StatelessWidget {
                                 isPriority
                                     ? 'Remove Priority'
                                     : 'Set Priority',
-                                style: const TextStyle(fontSize: 14)),
+                                style: const TextStyle(
+                                    fontSize: 14)),
                           ])),
                       const PopupMenuDivider(),
-                      // ── Share Report — live spinner while building ──
                       PopupMenuItem(
                           value: 'share',
                           child: Row(children: [
                             isGeneratingPdf
                                 ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: _T.teal),
-                            )
+                                width: 18,
+                                height: 18,
+                                child:
+                                CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: _T.teal))
                                 : const Icon(
-                                Icons.picture_as_pdf_rounded,
+                                Icons
+                                    .picture_as_pdf_rounded,
                                 size: 18,
                                 color: _T.teal),
                             const SizedBox(width: 10),
@@ -1335,18 +1764,22 @@ class _StudentCard extends StatelessWidget {
                                 size: 18, color: _T.teal),
                             SizedBox(width: 10),
                             Text('Transfer Student',
-                                style: TextStyle(fontSize: 14)),
+                                style:
+                                TextStyle(fontSize: 14)),
                           ])),
                       const PopupMenuDivider(),
                       const PopupMenuItem(
                           value: 'delete',
                           child: Row(children: [
-                            Icon(Icons.delete_outline_rounded,
-                                size: 18, color: _T.red),
+                            Icon(
+                                Icons.delete_outline_rounded,
+                                size: 18,
+                                color: _T.red),
                             SizedBox(width: 10),
                             Text('Delete',
                                 style: TextStyle(
-                                    color: _T.red, fontSize: 14)),
+                                    color: _T.red,
+                                    fontSize: 14)),
                           ])),
                     ],
                   ),
@@ -1356,9 +1789,9 @@ class _StudentCard extends StatelessWidget {
             const SizedBox(height: 12),
             const Divider(height: 1, color: _T.border),
 
-            // ── Bottom row ───────────────────────────────────
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
+              padding:
+              const EdgeInsets.fromLTRB(16, 12, 16, 14),
               child: Row(children: [
                 Expanded(
                   child: Wrap(
@@ -1366,28 +1799,27 @@ class _StudentCard extends StatelessWidget {
                     runSpacing: 8,
                     children: disability
                         .split(',')
-                        .map((d) => _DisabilityChip(d.trim()))
+                        .map((d) =>
+                        _DisabilityChip(d.trim()))
                         .toList(),
                   ),
                 ),
                 const SizedBox(width: 12),
-                // Show a tiny PDF spinner on the card itself too
                 if (isGeneratingPdf) ...[
                   const SizedBox(
-                    width: 14,
-                    height: 14,
-                    child: CircularProgressIndicator(
-                        strokeWidth: 2, color: _T.teal),
-                  ),
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: _T.teal)),
                   const SizedBox(width: 8),
                 ],
                 _StatusBadge(status),
               ]),
             ),
 
-            // ── Tap hint ──────────────────────────────────────
             Padding(
-              padding: const EdgeInsets.only(right: 16, bottom: 12),
+              padding:
+              const EdgeInsets.only(right: 16, bottom: 12),
               child: Row(children: const [
                 Spacer(),
                 Text('View progress →',

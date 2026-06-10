@@ -157,12 +157,16 @@ class StudentDetailPage extends StatefulWidget {
   final String studentId;
   final String studentName;
   final String userRole;
+  final String? orgId;     // ✅ ADD
+  final String? orgName;
 
   const StudentDetailPage({
     super.key,
     required this.studentId,
     required this.studentName,
     required this.userRole,
+    this.orgId,            // ✅ ADD
+    this.orgName,
   });
 
   @override
@@ -170,7 +174,21 @@ class StudentDetailPage extends StatefulWidget {
 }
 
 class _StudentDetailPageState extends State<StudentDetailPage> {
+  // ✅ ADD THIS BLOCK HERE
+  CollectionReference<Map<String, dynamic>> get _studentsRef {
+    if (widget.orgId != null) {
+      return firestore
+          .collection('organisations')
+          .doc(widget.orgId)
+          .collection('students');
+    } else {
+      return firestore.collection('students');
+    }
+  }
 
+  CollectionReference<Map<String, dynamic>> _recordsRef(String studentId) {
+    return _studentsRef.doc(studentId).collection('records');
+  }
   // =================== LOCAL AI NOTE GENERATION ===================
   String generateAiNote({
     required String domain,
@@ -717,11 +735,7 @@ class _StudentDetailPageState extends State<StudentDetailPage> {
                                   aiGenerated = true;
                                 }
 
-                                await firestore
-                                    .collection('students')
-                                    .doc(widget.studentId)
-                                    .collection('records')
-                                    .add({
+                                await _recordsRef(widget.studentId).add({
                                   'entryType': entryType ?? "Behaviour",
                                   'areaOfSupport': (entryType ==
                                       "Behaviour")
@@ -768,10 +782,7 @@ class _StudentDetailPageState extends State<StudentDetailPage> {
     DateTime selectedDate = DateTime.now();
     final TextEditingController noteController = TextEditingController();
 
-    final existingDoc = await firestore
-        .collection('students')
-        .doc(widget.studentId)
-        .collection('records')
+    final existingDoc = await _recordsRef(widget.studentId)
         .doc(docId)
         .get();
 
@@ -973,11 +984,7 @@ class _StudentDetailPageState extends State<StudentDetailPage> {
                                   aiGenerated = true;
                                 }
 
-                                await firestore
-                                    .collection('students')
-                                    .doc(widget.studentId)
-                                    .collection('records')
-                                    .add({
+                                await _recordsRef(widget.studentId).add({
                                   'areaOfSupport': existingArea,
                                   'challenge': existingChallenge,
                                   'rating': newRating.toInt(),
@@ -1024,12 +1031,10 @@ class _StudentDetailPageState extends State<StudentDetailPage> {
     );
 
     if (confirm == true) {
-      await firestore
-          .collection('students')
-          .doc(widget.studentId)
-          .collection('records')
+      await _recordsRef(widget.studentId)
           .doc(docId)
           .delete();
+
     }
   }
 
@@ -1064,10 +1069,7 @@ class _StudentDetailPageState extends State<StudentDetailPage> {
         ],
       ),
       body: StreamBuilder<QuerySnapshot>(
-        stream: firestore
-            .collection('students')
-            .doc(widget.studentId)
-            .collection('records')
+        stream: _recordsRef(widget.studentId)
             .orderBy('timestamp', descending: true)
             .snapshots(),
         builder: (context, snapshot) {
@@ -1131,6 +1133,7 @@ class _StudentDetailPageState extends State<StudentDetailPage> {
                         builder: (_) => ChallengeProgressPage(
                           studentId: widget.studentId,
                           challenge: data['challenge'] ?? '',
+                          orgId: widget.orgId, // ✅ IMPORTANT
                         ),
                       ),
                     );
@@ -1357,11 +1360,13 @@ class _StudentDetailPageState extends State<StudentDetailPage> {
 class ChallengeProgressPage extends StatefulWidget {
   final String studentId;
   final String challenge;
+  final String? orgId;
 
   const ChallengeProgressPage({
     super.key,
     required this.studentId,
     required this.challenge,
+    this.orgId,
   });
 
   @override
@@ -1369,8 +1374,22 @@ class ChallengeProgressPage extends StatefulWidget {
 }
 
 class _ChallengeProgressPageState extends State<ChallengeProgressPage> {
-  final FirebaseFirestore firestore = FirebaseFirestore.instance;
+  final FirebaseFirestore firestore = FirebaseFirestore.instance;// ✅ ADD THIS INSIDE ChallengeProgressPageState
 
+  CollectionReference<Map<String, dynamic>> get _studentsRef {
+    if (widget.orgId != null) {
+      return firestore
+          .collection('organisations')
+          .doc(widget.orgId)
+          .collection('students');
+    } else {
+      return firestore.collection('students');
+    }
+  }
+
+  CollectionReference<Map<String, dynamic>> _recordsRef(String studentId) {
+    return _studentsRef.doc(studentId).collection('records');
+  }
   String _label(int v) {
     switch (v) {
       case 1:
@@ -1664,10 +1683,7 @@ class _ChallengeProgressPageState extends State<ChallengeProgressPage> {
                                 final bool stillAi =
                                     currentAiGenerated && updatedNote == currentNote;
 
-                                await firestore
-                                    .collection('students')
-                                    .doc(widget.studentId)
-                                    .collection('records')
+                                await _recordsRef(widget.studentId)
                                     .doc(docId)
                                     .update({
                                   'rating': editedRating.toInt(),
@@ -1704,10 +1720,7 @@ class _ChallengeProgressPageState extends State<ChallengeProgressPage> {
     );
 
     if (confirm == true) {
-      await firestore
-          .collection('students')
-          .doc(widget.studentId)
-          .collection('records')
+      await _recordsRef(widget.studentId)
           .doc(docId)
           .delete();
     }
@@ -1746,10 +1759,7 @@ class _ChallengeProgressPageState extends State<ChallengeProgressPage> {
         centerTitle: false,
       ),
       body: StreamBuilder<QuerySnapshot>(
-        stream: firestore
-            .collection('students')
-            .doc(widget.studentId)
-            .collection('records')
+        stream: _recordsRef(widget.studentId)
             .orderBy('date', descending: true)
             .snapshots(),
         builder: (context, snapshot) {
